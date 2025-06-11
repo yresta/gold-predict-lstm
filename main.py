@@ -4,32 +4,18 @@ import numpy as np
 import joblib
 from tensorflow.keras.models import load_model
 
-# Import ManualLSTM jika kamu menggunakan arsitektur custom
+# Import ManualLSTM kalau diperlukan untuk custom model
 from manual_lstm import ManualLSTM  
 
-# Load scaler dan model (pastikan semua file sudah diunggah ke GitHub/Streamlit)
-@st.cache_resource
-def load_scalers_and_model():
-    scaler_X = joblib.load("scaler_x.pkl")
-    scaler_y = joblib.load("scaler_y.pkl")
-    model = load_model(
-        "manual_model_lstm.keras",
-        custom_objects={"ManualLSTM": ManualLSTM}
-    )
-    return scaler_X, scaler_y, model
+# Load model dan scaler
+scaler_X = joblib.load("scaler_x.pkl")
+scaler_y = joblib.load("scaler_y.pkl")
+model_manual_lstm_loaded = load_model(
+    "manual_model_lstm.keras",
+    custom_objects={"ManualLSTM": ManualLSTM}
+)
 
-scaler_X, scaler_y, model_manual_lstm_loaded = load_scalers_and_model()
-
-# Fungsi membersihkan angka dari format ribuan/desimal Eropa (e.g., 3.323,20)
-def clean_numeric_columns(df, cols):
-    for col in cols:
-        df[col] = df[col].astype(str)
-        df[col] = df[col].str.replace('.', '', regex=False)
-        df[col] = df[col].str.replace(',', '.', regex=False)
-        df[col] = df[col].astype(float)
-    return df
-
-# Load dan bersihkan data emas
+# Load data dan bersihkan angka
 @st.cache_data
 def load_data():
     df = pd.read_csv("DataEmas.csv")
@@ -42,11 +28,41 @@ def load_data():
         "Vol.": "Volume",
         "Perubahan%": "Change%"
     }, inplace=True)
-    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
-    df = clean_numeric_columns(df, ['Open', 'High', 'Low'])
-    return df
+    df["Date"] = pd.to_datetime(df["Date"])  # baru parse kolom yang sudah di-rename
 
-# Fungsi untuk prediksi harga masa depan
+    # Hilangkan karakter non-angka dari kolom harga
+    cols_harga = ['Close', 'Open', 'High', 'Low']
+    for col in cols_harga:
+        df[col] = df[col].str.replace('.', '', regex=False)
+        df[col] = df[col].str.replace(',', '.', regex=False)
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Tangani kolom Volume
+    def parse_volume(vol):
+        try:
+            if pd.isna(vol):
+                return None
+            vol = vol.replace(',', '.')  # ubah koma jadi titik desimal
+            if 'K' in vol:
+                return float(vol.replace('K', '')) * 1_000
+            elif 'M' in vol:
+                return float(vol.replace('M', '')) * 1_000_000
+            else:
+                return float(vol)
+        except:
+            return None
+    df['Volume'] = df['Volume'].apply(parse_volume)
+
+    # Bersihkan kolom 'Change%' dan konversi ke float
+    df['Change%'] = df['Change%'].str.replace('%', '', regex=False)
+    df['Change%'] = df['Change%'].str.replace(',', '.', regex=False)
+    df['Change%'] = pd.to_numeric(df['Change%'], errors='coerce')
+
+    # Membuat kolom baru bernama Volatility (Seberapa besar pergerakan harga dalam 1 hari)
+    df['Volatility'] = df['High'] - df['Low']
+    df.reset_index(drop=True, inplace=True)
+
+# Fungsi prediksi harga
 def predict_future_price(df, model, scaler_X, scaler_y, future_date_str, time_steps=7):
     try:
         df = df.sort_values("Date").reset_index(drop=True)
@@ -69,7 +85,7 @@ def predict_future_price(df, model, scaler_X, scaler_y, future_date_str, time_st
             pred_scaled = model.predict(input_seq, verbose=0)
             pred = scaler_y.inverse_transform(pred_scaled)[0][0]
 
-            # Tambahkan prediksi ke input berikutnya
+            # Tambahkan prediksi ke window berikutnya
             next_input = np.array([[pred, pred, pred]])
             next_input_scaled = scaler_X.transform(pd.DataFrame(next_input, columns=['Open', 'High', 'Low']))
             scaled_window = np.vstack([scaled_window[1:], next_input_scaled])
@@ -82,16 +98,13 @@ def predict_future_price(df, model, scaler_X, scaler_y, future_date_str, time_st
 # ========================
 # 🖥️ STREAMLIT APP START
 # ========================
-st.set_page_config(page_title="Prediksi Harga Emas", page_icon="📈")
 st.title("📈 Prediksi Harga Emas Menggunakan Manual LSTM")
 
 df = load_data()
 
 st.subheader("🗓️ Pilih Tanggal Prediksi")
-user_input_date = st.date_input(
-    "Pilih tanggal (setelah data terakhir)",
-    min_value=df["Date"].max().date() + pd.Timedelta(days=1)
-)
+user_input_date = st.date_input("Pilih tanggal (setelah data terakhir)", 
+                                min_value=df["Date"].max().date() + pd.Timedelta(days=1))
 
 if st.button("🔮 Prediksi"):
     hasil = predict_future_price(df, model_manual_lstm_loaded, scaler_X, scaler_y, str(user_input_date))
