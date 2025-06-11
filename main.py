@@ -8,24 +8,18 @@ from tensorflow.keras.models import load_model
 from manual_lstm import ManualLSTM  
 
 # Load model dan scaler
-@st.cache_resource
-def load_scalers_and_model():
-    scaler_X = joblib.load("scaler_x.pkl")
-    scaler_y = joblib.load("scaler_y.pkl")
-    
-    # Hanya load_model() untuk file .keras
-    model_manual_lstm_loaded = load_model(
-        "manual_model_lstm.keras",
-        custom_objects={"ManualLSTM": ManualLSTM}
-    )
-
-    return scaler_X, scaler_y, model_manual_lstm_loaded
-
+scaler_X = joblib.load("scaler_x.pkl")
+scaler_y = joblib.load("scaler_y.pkl")
+model_manual_lstm_loaded = load_model(
+    "manual_model_lstm.keras",
+    custom_objects={"ManualLSTM": ManualLSTM}
+)
 
 # Load data dan bersihkan angka
 @st.cache_data
 def load_data():
-    df = pd.read_csv("DataEmas.csv")
+    df = pd.read_csv("DataEmas.csv", parse_dates=["Tanggal"])
+    # Rename kolom dari Bahasa Indonesia ke format model
     df.rename(columns={
         "Tanggal": "Date",
         "Pembukaan": "Open",
@@ -35,7 +29,6 @@ def load_data():
         "Vol.": "Volume",
         "Perubahan%": "Change%"
     }, inplace=True)
-    df["Date"] = pd.to_datetime(df["Date"])  # baru parse kolom yang sudah di-rename
 
     # Hilangkan karakter non-angka dari kolom harga
     cols_harga = ['Close', 'Open', 'High', 'Low']
@@ -68,6 +61,7 @@ def load_data():
     # Membuat kolom baru bernama Volatility (Seberapa besar pergerakan harga dalam 1 hari)
     df['Volatility'] = df['High'] - df['Low']
     df.reset_index(drop=True, inplace=True)
+    return df
 
 # Fungsi prediksi harga
 def predict_future_price(df, model, scaler_X, scaler_y, future_date_str, time_steps=7):
