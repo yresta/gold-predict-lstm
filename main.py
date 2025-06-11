@@ -8,12 +8,19 @@ from tensorflow.keras.models import load_model
 from manual_lstm import ManualLSTM  
 
 # Load model dan scaler
-scaler_X = joblib.load("scaler_x.pkl")
-scaler_y = joblib.load("scaler_y.pkl")
-model_manual_lstm_loaded = load_model(
-    "manual_model_lstm.keras",
-    custom_objects={"ManualLSTM": ManualLSTM}
-)
+@st.cache_resource
+def load_scalers_and_model():
+    scaler_X = joblib.load("scaler_x.pkl")
+    scaler_y = joblib.load("scaler_y.pkl")
+    
+    # Hanya load_model() untuk file .keras
+    model_manual_lstm_loaded = load_model(
+        "manual_model_lstm.keras",
+        custom_objects={"ManualLSTM": ManualLSTM}
+    )
+
+    return scaler_X, scaler_y, model_manual_lstm_loaded
+
 
 # Load data dan bersihkan angka
 @st.cache_data
